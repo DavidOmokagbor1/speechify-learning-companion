@@ -1,0 +1,23 @@
+---
+description: Git commit/push guidelines and project scope (David O's responsibilities)
+alwaysApply: true
+---
+
+# Git & Project Scope
+
+## Git Commit & Push Rules
+
+- **Only commit** changes that belong to the Speechify Learning Companion project
+- **Only push** branches that are used for this project (e.g. `main`, `feature/*`, `david/*`)
+- Do **not** commit or push unrelated work, experimental code, or personal branches
+
+## David O's Scope (Backend)
+
+When working on this project, stick to David's responsibilities:
+
+- Database design and setup
+- API endpoint development
+- Dashboard analytics calculations
+- MoSCoW and Value/Effort framework documentation
+
+Do **not** modify or scaffold Nefera's work: frontend UI, OpenAI quiz generation, audio player, TTS.
