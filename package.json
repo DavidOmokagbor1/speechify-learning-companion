@@ -34,8 +34,8 @@
     "prettier": "^3.1.1"
   },
   "engines": {
-    "node": "18.x",
-    "npm": "9.x"
+    "node": "24.x",
+    "npm": "10.x"
   },
   "keywords": [
     "learning",
