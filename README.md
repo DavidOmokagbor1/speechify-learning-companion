@@ -9,6 +9,7 @@ A Speechify clone with **Learning Companion Mode**: AI-generated comprehension q
 ## Project Structure
 
 ```
+├── client/          # Frontend (React, Vite, Tailwind)
 ├── server/          # Backend API (Node.js, Express, PostgreSQL)
 ├── supabase/        # Database migrations
 └── docs/            # MoSCoW, Value/Effort, schema docs
@@ -84,10 +85,22 @@ curl -X POST http://localhost:3001/api/auth/register \
   -d '{"email":"test@example.com","password":"test1234"}'
 ```
 
+## Frontend (client/)
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Runs at **http://localhost:5173** (proxies `/api` to backend).
+
+Set `VITE_API_URL` in `client/.env` for production (backend URL).
+
 ## Tech Stack
 
-- **Backend:** Node.js, Express, PostgreSQL (Supabase), JWT, bcrypt
-- **Frontend:** (Nefera) React, Tailwind, TTS, OpenAI quiz generation
+- **Backend:** Node.js, Express, PostgreSQL (Supabase), JWT, bcrypt, OpenAI
+- **Frontend:** React, Vite, Tailwind, Web Speech API, Recharts
 
 ## Team
 

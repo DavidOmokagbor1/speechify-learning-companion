@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Light theme overrides */
+[data-theme="light"] body,
+[data-theme="light"] .min-h-screen.bg-slate-900 {
+  background-color: #f8fafc;
+}
+[data-theme="light"] .bg-slate-900 {
+  background-color: #f8fafc;
+}
+[data-theme="light"] .text-white {
+  color: #0f172a;
+}
+[data-theme="light"] .text-slate-400 {
+  color: #64748b;
+}
+[data-theme="light"] .text-slate-500 {
+  color: #64748b;
+}
+[data-theme="light"] .bg-slate-800 {
+  background-color: #e2e8f0;
+}
+[data-theme="light"] .border-slate-700 {
+  border-color: #cbd5e1;
+}
+[data-theme="light"] .border-slate-600 {
+  border-color: #cbd5e1;
+}
+[data-theme="light"] .bg-slate-700 {
+  background-color: #cbd5e1;
+}
+[data-theme="light"] .bg-slate-700\/50 {
+  background-color: rgba(203, 213, 225, 0.5);
+}
+[data-theme="light"] .hover\:bg-slate-600:hover,
+[data-theme="light"] .hover\:bg-slate-700:hover {
+  background-color: #94a3b8;
+}
+[data-theme="light"] .text-slate-200 {
+  color: #1e293b;
+}
+[data-theme="light"] .text-slate-300 {
+  color: #334155;
+}
+[data-theme="light"] .placeholder-slate-500::placeholder {
+  color: #64748b;
+}
