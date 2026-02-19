@@ -4,10 +4,15 @@ const cheerio = require('cheerio');
 const OpenAI = require('openai');
 const { authMiddleware } = require('../middleware/auth');
 
-// Use youtube-transcript-plus in production (supports userAgent for cloud servers)
-// @danielxceron/youtube-transcript works locally but fails on Render with "captions disabled"
-const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// Use youtube-transcript-plus in production. YouTube blocks cloud IPs;
+// we pass full browser-like headers via custom fetches to bypass detection.
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.youtube.com/',
+};
 
 const router = express.Router();
 
@@ -121,7 +126,29 @@ router.post('/from-url', authMiddleware, async (req, res) => {
       try {
         const { fetchTranscript } = await import('youtube-transcript-plus');
         const segments = await fetchTranscript(url, {
-          userAgent: BROWSER_USER_AGENT,
+          userAgent: BROWSER_HEADERS['User-Agent'],
+          videoFetch: async ({ url: fetchUrl, lang }) => {
+            return fetch(fetchUrl, {
+              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
+            });
+          },
+          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) => {
+            return fetch(fetchUrl, {
+              method: method || 'POST',
+              headers: {
+                ...BROWSER_HEADERS,
+                ...(headers || {}),
+                ...(lang && { 'Accept-Language': lang }),
+                'Content-Type': 'application/json',
+              },
+              body,
+            });
+          },
+          transcriptFetch: async ({ url: fetchUrl, lang }) => {
+            return fetch(fetchUrl, {
+              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
+            });
+          },
         });
         if (!segments?.length) {
           return res.status(400).json({
@@ -137,6 +164,7 @@ router.post('/from-url', authMiddleware, async (req, res) => {
         text = await addPunctuation(text);
         return res.json({ text, title: 'YouTube video' });
       } catch (ytErr) {
+        console.error('YouTube transcript error:', ytErr.message);
         const msg = ytErr.message?.includes('Transcript is disabled') ||
           ytErr.message?.includes('disabled') ||
           ytErr.message?.includes('TranscriptsDisabled')
