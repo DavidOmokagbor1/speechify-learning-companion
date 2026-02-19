@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { API_URL } from '../config';
 
 function getGroupKey(dateStr) {
   const d = new Date(dateStr);

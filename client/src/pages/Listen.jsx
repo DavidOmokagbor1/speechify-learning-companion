@@ -3,8 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { API_URL } from '../config';
 
 const QUIZ_INTERVAL_OPTIONS = [
   { label: '30 sec', value: 0.5 },

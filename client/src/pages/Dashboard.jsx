@@ -6,7 +6,7 @@ import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { escapeCsv } from '../utils/csv';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { API_URL } from '../config';
 
 export default function Dashboard() {
   const { user } = useAuth();

@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { API_URL } from '../config';
 
 const ACCEPTED_FORMATS = '.pdf,.doc,.docx,.txt,.epub,.rtf,.html';
 
