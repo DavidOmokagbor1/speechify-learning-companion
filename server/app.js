@@ -19,6 +19,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Speechify Learning Companion API' });
 });
 
+app.get('/api/health/proxy', (req, res) => {
+  const url = process.env.PROXY_URL;
+  const host = process.env.PROXY_HOST;
+  res.json({
+    configured: !!(url?.trim() || (host && process.env.PROXY_PORT)),
+    hint: url ? 'PROXY_URL set' : host ? 'PROXY_HOST/PORT set' : 'No proxy configured',
+  });
+});
+
 app.get('/api/health/db', async (req, res) => {
   try {
     const { pool } = require('./db');

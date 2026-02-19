@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const OpenAI = require('openai');
 const { authMiddleware } = require('../middleware/auth');
 
@@ -13,6 +14,79 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
   'Referer': 'https://www.youtube.com/',
 };
+
+function getProxyConfig() {
+  const proxyUrl = process.env.PROXY_URL;
+  if (proxyUrl) {
+    try {
+      const u = new URL(proxyUrl);
+      const auth = u.username && u.password
+        ? { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) }
+        : undefined;
+      return {
+        host: u.hostname,
+        port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80'), 10),
+        protocol: u.protocol.replace(':', '') || 'http',
+        auth,
+      };
+    } catch {
+      return null;
+    }
+  }
+  const host = process.env.PROXY_HOST;
+  const port = process.env.PROXY_PORT;
+  if (!host || !port) return null;
+  const user = process.env.PROXY_USER;
+  const pass = process.env.PROXY_PASS;
+  const auth = user && pass ? { username: user, password: pass } : undefined;
+  return { host, port: parseInt(port, 10), protocol: 'http', auth };
+}
+
+function buildProxyUrl(config) {
+  if (!config) return null;
+  const auth = config.auth
+    ? `${encodeURIComponent(config.auth.username)}:${encodeURIComponent(config.auth.password)}@`
+    : '';
+  return `${config.protocol}://${auth}${config.host}:${config.port}`;
+}
+
+function getProxyAgentUrl() {
+  let proxyUrl = process.env.PROXY_URL?.trim();
+  if (proxyUrl) {
+    if (!/^https?:\/\//i.test(proxyUrl)) proxyUrl = 'http://' + proxyUrl;
+    return proxyUrl;
+  }
+  const cfg = getProxyConfig();
+  return cfg ? buildProxyUrl(cfg) : null;
+}
+
+/** Make HTTP request via proxy if configured; return fetch-like Response for youtube-transcript-plus */
+async function proxyFetch(url, { method = 'GET', headers = {}, body } = {}) {
+  const proxyUrl = getProxyAgentUrl();
+  const options = {
+    method,
+    url,
+    headers: { ...BROWSER_HEADERS, ...headers },
+    timeout: 30000,
+    maxRedirects: 5,
+    validateStatus: () => true,
+    proxy: false,
+    decompress: true,
+  };
+  if (body && method === 'POST') options.data = body;
+  if (proxyUrl && url.startsWith('https')) {
+    options.httpsAgent = new HttpsProxyAgent(proxyUrl);
+  }
+
+  const res = await axios(options);
+  const data = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  return {
+    ok: res.status >= 200 && res.status < 300,
+    status: res.status,
+    text: async () => data,
+    json: async () => JSON.parse(data),
+  };
+}
 
 const router = express.Router();
 
@@ -164,37 +238,51 @@ router.post('/from-url', authMiddleware, async (req, res) => {
       }
 
       let segments = null;
+      const useProxy = !!getProxyAgentUrl();
 
-      // Try 1: Direct fetch (works locally, may fail on cloud)
+      const createFetch = (opts) =>
+        useProxy
+          ? proxyFetch(opts.url, {
+              method: opts.method || 'GET',
+              headers: {
+                ...(opts.headers || {}),
+                ...(opts.lang && { 'Accept-Language': opts.lang }),
+                ...(opts.method === 'POST' && { 'Content-Type': 'application/json' }),
+              },
+              body: opts.body,
+            })
+          : fetch(opts.url, {
+              method: opts.method || 'GET',
+              headers: {
+                ...BROWSER_HEADERS,
+                ...(opts.headers || {}),
+                ...(opts.lang && { 'Accept-Language': opts.lang }),
+                ...(opts.method === 'POST' && { 'Content-Type': 'application/json' }),
+              },
+              body: opts.body,
+            });
+
+      // Try 1: Direct fetch (local) or proxy fetch (production when PROXY_* set)
       try {
         const { fetchTranscript } = await import('youtube-transcript-plus');
         segments = await fetchTranscript(url, {
           userAgent: BROWSER_HEADERS['User-Agent'],
-          videoFetch: async ({ url: fetchUrl, lang }) => {
-            return fetch(fetchUrl, {
-              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
-            });
-          },
-          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) => {
-            return fetch(fetchUrl, {
-              method: method || 'POST',
-              headers: {
-                ...BROWSER_HEADERS,
-                ...(headers || {}),
-                ...(lang && { 'Accept-Language': lang }),
-                'Content-Type': 'application/json',
-              },
-              body,
-            });
-          },
-          transcriptFetch: async ({ url: fetchUrl, lang }) => {
-            return fetch(fetchUrl, {
-              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
-            });
-          },
+          videoFetch: async ({ url: fetchUrl, lang }) =>
+            createFetch({ url: fetchUrl, lang }),
+          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) =>
+            createFetch({ url: fetchUrl, method: method || 'POST', body, headers, lang }),
+          transcriptFetch: async ({ url: fetchUrl, lang }) =>
+            createFetch({ url: fetchUrl, lang }),
         });
       } catch (ytErr) {
-        console.error('YouTube direct fetch failed:', ytErr.message, '- trying fallback');
+        console.error(
+          '[YouTube]',
+          useProxy ? 'Proxy fetch failed' : 'Direct fetch failed',
+          '-',
+          ytErr.message,
+          useProxy ? '(proxy configured)' : '',
+          '- trying TubeText fallback'
+        );
       }
 
       // Try 2: TubeText API (fallback for production when YouTube blocks cloud IPs)
