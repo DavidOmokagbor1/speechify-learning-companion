@@ -80,10 +80,6 @@ export default function Home() {
     }
   };
 
-  const handleCloudConnect = (name) => {
-    showToast(`${name} integration coming soon`);
-  };
-
   if (!user) {
     return (
       <div className="p-8 max-w-2xl mx-auto">
@@ -214,11 +210,12 @@ export default function Home() {
           <button
             key={name}
             type="button"
-            onClick={() => handleCloudConnect(name)}
-            className="flex flex-col items-center gap-3 p-6 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
+            disabled
+            className="flex flex-col items-center gap-3 p-6 rounded-xl bg-white/5 border border-white/10 opacity-60 cursor-not-allowed"
           >
             <span className="text-3xl">{icon}</span>
             <span className="text-white font-medium">{name}</span>
+            <span className="text-xs text-slate-500">Coming soon</span>
           </button>
         ))}
       </div>

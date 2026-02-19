@@ -2,14 +2,23 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const OpenAI = require('openai');
-const { YoutubeTranscript } = require('@danielxceron/youtube-transcript');
 const { authMiddleware } = require('../middleware/auth');
+
+// Use youtube-transcript-plus in production. YouTube blocks cloud IPs;
+// we pass full browser-like headers via custom fetches to bypass detection.
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.youtube.com/',
+};
 
 const router = express.Router();
 
 async function addPunctuation(text) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || !text || text.length < 50) return text;
+  if (!apiKey || !text || text.length < 20) return text;
 
   try {
     const openai = new OpenAI({ apiKey });
@@ -26,15 +35,22 @@ async function addPunctuation(text) {
       i = end;
     }
 
+    const systemPrompt = `You are a transcript editor. Add proper punctuation to make this text easy to understand when read aloud or listened to.
+
+Rules:
+- Add periods (.) to mark clear sentence endings. This helps listeners know when one thought ends and another begins.
+- Add commas (,) for natural pauses and to separate clauses.
+- Add question marks (?) for questions, exclamation marks (!) for emphasis.
+- Use colons (:) before lists or explanations.
+- Preserve the exact wording — do not change, add, or remove any words.
+- Return ONLY the punctuated text, nothing else. No explanations or summaries.`;
+
     const results = await Promise.all(
       chunks.map(async (chunk) => {
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
-            {
-              role: 'system',
-              content: 'Add proper punctuation (commas, periods, question marks, exclamation marks, colons, semicolons) to this transcript. Preserve the exact wording. Return ONLY the punctuated text, nothing else. Do not add explanations or summaries.',
-            },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: chunk },
           ],
           temperature: 0.2,
@@ -108,7 +124,32 @@ router.post('/from-url', authMiddleware, async (req, res) => {
     // YouTube: fetch transcript instead of HTML
     if (isYouTubeUrl(url)) {
       try {
-        const segments = await YoutubeTranscript.fetchTranscript(url);
+        const { fetchTranscript } = await import('youtube-transcript-plus');
+        const segments = await fetchTranscript(url, {
+          userAgent: BROWSER_HEADERS['User-Agent'],
+          videoFetch: async ({ url: fetchUrl, lang }) => {
+            return fetch(fetchUrl, {
+              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
+            });
+          },
+          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) => {
+            return fetch(fetchUrl, {
+              method: method || 'POST',
+              headers: {
+                ...BROWSER_HEADERS,
+                ...(headers || {}),
+                ...(lang && { 'Accept-Language': lang }),
+                'Content-Type': 'application/json',
+              },
+              body,
+            });
+          },
+          transcriptFetch: async ({ url: fetchUrl, lang }) => {
+            return fetch(fetchUrl, {
+              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
+            });
+          },
+        });
         if (!segments?.length) {
           return res.status(400).json({
             error: 'This video has no captions. Only videos with subtitles/captions can be imported.',
@@ -123,7 +164,10 @@ router.post('/from-url', authMiddleware, async (req, res) => {
         text = await addPunctuation(text);
         return res.json({ text, title: 'YouTube video' });
       } catch (ytErr) {
-        const msg = ytErr.message?.includes('Transcript is disabled')
+        console.error('YouTube transcript error:', ytErr.message);
+        const msg = ytErr.message?.includes('Transcript is disabled') ||
+          ytErr.message?.includes('disabled') ||
+          ytErr.message?.includes('TranscriptsDisabled')
           ? 'This video has captions disabled.'
           : ytErr.message?.includes('not available')
             ? 'No transcript available for this video.'
