@@ -37,6 +37,7 @@ Edit `.env`:
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string (from Supabase Dashboard > Project Settings > Database) |
+| `OPENAI_API_KEY` | OpenAI API key for quiz generation (get from platform.openai.com) |
 | `JWT_SECRET` | Random string for signing JWTs (min 32 chars). Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `PORT` | Server port (default: 3001) |
 
@@ -87,6 +88,7 @@ Server runs at **http://localhost:3001**
 - `GET /api/sessions/:id` — Get single session
 
 ### Quiz (token required)
+- `POST /api/quiz/generate` — Generate quiz question from content. Body: `{ "content": "text chunk from last 5 min of listening" }`. Returns `{ question, options: { A, B, C, D }, correct_answer }`. Requires `OPENAI_API_KEY` in env.
 - `POST /api/quiz/attempt` — Save quiz attempt. Body: `{ "session_id": "...", "question": "...", "options": {...}, "user_answer": "A", "correct_answer": "A", "is_correct": true }`
 - `GET /api/quiz/attempts/:sessionId` — List attempts for session
 

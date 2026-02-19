@@ -9,7 +9,8 @@ const router = express.Router();
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = (req.body.email || '').trim().toLowerCase();
+    const password = (req.body.password || '').trim();
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
@@ -20,7 +21,7 @@ router.post('/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const result = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, subscription_tier, created_at',
-      [email.toLowerCase(), passwordHash]
+      [email, passwordHash]
     );
     const user = result.rows[0];
 
@@ -49,14 +50,15 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = (req.body.email || '').trim().toLowerCase();
+    const password = (req.body.password || '').trim();
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
     const result = await pool.query(
       'SELECT id, email, password_hash, subscription_tier, created_at FROM users WHERE email = $1',
-      [email.toLowerCase()]
+      [email]
     );
     const user = result.rows[0];
     if (!user) {

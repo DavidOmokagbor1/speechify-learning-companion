@@ -1,55 +1,14 @@
 {
   "name": "speechify-learning-companion",
-  "version": "1.0.0",
-  "type": "module",
-  "description": "AI-powered learning companion with audio playback, interactive quizzes, and personalized analytics",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint src --ext .jsx,.js",
-    "lint:fix": "eslint src --ext .jsx,.js --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,css,md}\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx,css,md}\"",
-    "mcp:figma": "node mcp-figma-server.js",
-    "mcp:install": "npm install @modelcontextprotocol/server-figma --save-dev",
-    "figma:export": "figma-export build",
-    "figma:watch": "figma-export watch"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.20.1",
-    "axios": "^1.6.2",
-    "zustand": "^4.4.1",
-    "jwt-decode": "^4.0.0",
-    "recharts": "^2.10.3",
-    "react-icons": "^4.12.0"
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "test:e2e": "cd client && npx playwright test",
+    "test:e2e:ui": "cd client && npx playwright test --ui"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8",
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8.4.32",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.55.0",
-    "eslint-config-react-app": "^7.0.1",
-    "prettier": "^3.1.1"
-  },
-  "engines": {
-    "node": "24.x",
-    "npm": "10.x"
-  },
-  "keywords": [
-    "learning",
-    "audio",
-    "tts",
-    "quizzes",
-    "education",
-    "react",
-    "vite"
-  ],
-  "author": "Paula Fenton (Nefera)",
-  "license": "MIT"
+    "concurrently": "^8.2.2"
+  }
 }

@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
     const total = parseInt(countResult.rows[0].count);
 
     const result = await pool.query(
-      `SELECT id, content_title, total_duration_seconds, created_at
+      `SELECT id, content_title, LEFT(content_text, 120) as content_preview, total_duration_seconds, created_at
        FROM listening_sessions
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -71,6 +71,23 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch session' });
+  }
+});
+
+// DELETE /api/sessions/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM listening_sessions WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.userId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete session' });
   }
 });
 

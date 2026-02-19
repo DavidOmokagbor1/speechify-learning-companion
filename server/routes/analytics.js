@@ -1,11 +1,11 @@
 const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../middleware/auth');
+const { calculateStreakFromDates } = require('../utils/streak');
 
 const router = express.Router();
 router.use(authMiddleware);
 
-// Calculate daily streak: consecutive days with quiz activity from today backward
 async function getDailyStreak(userId) {
   const result = await pool.query(
     `SELECT DISTINCT DATE(qa.created_at) as quiz_date
@@ -19,27 +19,8 @@ async function getDailyStreak(userId) {
     const d = r.quiz_date;
     return typeof d === 'string' ? d.slice(0, 10) : new Date(d).toISOString().slice(0, 10);
   });
-
-  if (dateStrings.length === 0) return 0;
-
   const todayStr = new Date().toISOString().slice(0, 10);
-
-  // If no activity today, streak is 0 (streak resets if you miss a day)
-  if (dateStrings[0] !== todayStr) return 0;
-
-  let streak = 0;
-  let expectedDate = new Date(todayStr);
-
-  for (const dateStr of dateStrings) {
-    const expectedStr = expectedDate.toISOString().slice(0, 10);
-    if (dateStr === expectedStr) {
-      streak++;
-      expectedDate.setDate(expectedDate.getDate() - 1);
-    } else {
-      break;
-    }
-  }
-  return streak;
+  return calculateStreakFromDates(dateStrings, todayStr);
 }
 
 // GET /api/analytics/dashboard
@@ -121,6 +102,27 @@ router.get('/score-trends', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch score trends' });
+  }
+});
+
+// GET /api/analytics/quiz-history — all quiz attempts for CSV export
+router.get('/quiz-history', async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const result = await pool.query(
+      `SELECT qa.id, qa.session_id, ls.content_title, qa.question, qa.options, qa.user_answer, qa.correct_answer, qa.is_correct, qa.created_at
+       FROM quiz_attempts qa
+       JOIN listening_sessions ls ON qa.session_id = ls.id
+       WHERE ls.user_id = $1
+       ORDER BY qa.created_at ASC`,
+      [userId]
+    );
+
+    res.json({ attempts: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch quiz history' });
   }
 });
 
