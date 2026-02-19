@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 server/.env
+client/.env
 
 # Dependencies
 node_modules/

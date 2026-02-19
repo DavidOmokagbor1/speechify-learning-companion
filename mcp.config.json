@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "figma": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-figma",
+        "--token",
+        "${FIGMA_TOKEN}"
+      ],
+      "env": {
+        "FIGMA_TOKEN": "${FIGMA_TOKEN}"
+      }
+    }
+  }
+}
