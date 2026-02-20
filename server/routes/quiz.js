@@ -54,10 +54,21 @@ The correct_answer must be one of A, B, C, or D. Make questions clear and based 
       return res.status(500).json({ error: 'Invalid quiz format from AI' });
     }
 
+    // Shuffle options so correct answer isn't always A
+    const letters = ['A', 'B', 'C', 'D'];
+    const values = letters.map((k) => parsed.options[k]).filter(Boolean);
+    for (let i = values.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [values[i], values[j]] = [values[j], values[i]];
+    }
+    const shuffledOptions = Object.fromEntries(letters.slice(0, values.length).map((k, i) => [k, values[i]]));
+    const correctValue = parsed.options[parsed.correct_answer];
+    const newCorrectKey = letters[values.indexOf(correctValue)];
+
     res.json({
       question: parsed.question,
-      options: parsed.options,
-      correct_answer: parsed.correct_answer,
+      options: shuffledOptions,
+      correct_answer: newCorrectKey,
       explanation: parsed.explanation || null,
     });
   } catch (err) {

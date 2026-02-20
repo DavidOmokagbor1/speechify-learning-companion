@@ -1,9 +1,17 @@
-# Environment variables (secrets)
+# Environment variables (secrets) - NEVER commit these
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
 server/.env
 client/.env
+
+# Proxy / API credentials (WebShare list dumps, etc.)
+credentials.txt
+*.credentials
+proxy-credentials.txt
+secrets/
 
 # Dependencies
 node_modules/

@@ -47,6 +47,15 @@ Add these 3 variables:
 | `DATABASE_URL` | Your Supabase pooler URL (from `.env`) |
 | `JWT_SECRET` | Your JWT secret (from `.env`) |
 | `NODE_ENV` | `production` |
+| `OPENAI_API_KEY` | Your OpenAI key (for quiz generation) |
+
+**Optional – for YouTube Paste Link** (required if YouTube blocks cloud IPs):
+
+| Key | Value |
+|-----|-------|
+| `PROXY_URL` | `http://user:pass@proxy.example.com:80` (e.g. WebShare, Bright Data) |
+
+Or use `PROXY_HOST`, `PROXY_PORT`, `PROXY_USER`, `PROXY_PASS` instead.
 
 Copy from your `server/.env` file. Do NOT commit `.env` — only add in Render dashboard.
 

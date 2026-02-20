@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const OpenAI = require('openai');
 const { authMiddleware } = require('../middleware/auth');
 
@@ -13,6 +14,79 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
   'Referer': 'https://www.youtube.com/',
 };
+
+function getProxyConfig() {
+  const proxyUrl = process.env.PROXY_URL;
+  if (proxyUrl) {
+    try {
+      const u = new URL(proxyUrl);
+      const auth = u.username && u.password
+        ? { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) }
+        : undefined;
+      return {
+        host: u.hostname,
+        port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80'), 10),
+        protocol: u.protocol.replace(':', '') || 'http',
+        auth,
+      };
+    } catch {
+      return null;
+    }
+  }
+  const host = process.env.PROXY_HOST;
+  const port = process.env.PROXY_PORT;
+  if (!host || !port) return null;
+  const user = process.env.PROXY_USER;
+  const pass = process.env.PROXY_PASS;
+  const auth = user && pass ? { username: user, password: pass } : undefined;
+  return { host, port: parseInt(port, 10), protocol: 'http', auth };
+}
+
+function buildProxyUrl(config) {
+  if (!config) return null;
+  const auth = config.auth
+    ? `${encodeURIComponent(config.auth.username)}:${encodeURIComponent(config.auth.password)}@`
+    : '';
+  return `${config.protocol}://${auth}${config.host}:${config.port}`;
+}
+
+function getProxyAgentUrl() {
+  let proxyUrl = process.env.PROXY_URL?.trim();
+  if (proxyUrl) {
+    if (!/^https?:\/\//i.test(proxyUrl)) proxyUrl = 'http://' + proxyUrl;
+    return proxyUrl;
+  }
+  const cfg = getProxyConfig();
+  return cfg ? buildProxyUrl(cfg) : null;
+}
+
+/** Make HTTP request via proxy if configured; return fetch-like Response for youtube-transcript-plus */
+async function proxyFetch(url, { method = 'GET', headers = {}, body } = {}) {
+  const proxyUrl = getProxyAgentUrl();
+  const options = {
+    method,
+    url,
+    headers: { ...BROWSER_HEADERS, ...headers },
+    timeout: 30000,
+    maxRedirects: 5,
+    validateStatus: () => true,
+    proxy: false,
+    decompress: true,
+  };
+  if (body && method === 'POST') options.data = body;
+  if (proxyUrl && url.startsWith('https')) {
+    options.httpsAgent = new HttpsProxyAgent(proxyUrl);
+  }
+
+  const res = await axios(options);
+  const data = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  return {
+    ok: res.status >= 200 && res.status < 300,
+    status: res.status,
+    text: async () => data,
+    json: async () => JSON.parse(data),
+  };
+}
 
 const router = express.Router();
 
@@ -71,6 +145,34 @@ function isYouTubeUrl(url) {
   return YOUTUBE_REGEX.test(url);
 }
 
+function getYouTubeVideoId(url) {
+  const m = url.match(YOUTUBE_REGEX);
+  return m ? m[1] : null;
+}
+
+/** Fallback: TubeText API when direct fetch fails (YouTube blocks cloud IPs) */
+async function fetchTranscriptViaTubeText(videoId) {
+  try {
+    const res = await axios.get(
+      `https://tubetext.vercel.app/youtube/transcript?video_id=${encodeURIComponent(videoId)}`,
+      { timeout: 20000, validateStatus: () => true }
+    );
+    const data = res.data?.data || res.data;
+    if (res.data?.error) return null;
+    const fullText = data?.full_text;
+    if (fullText && typeof fullText === 'string' && fullText.trim().length >= 20) {
+      return [{ text: fullText.trim(), duration: 0, offset: 0 }];
+    }
+    const transcript = Array.isArray(data?.transcript) ? data.transcript : [];
+    if (transcript.length === 0) return null;
+    const text = transcript.map((s) => (typeof s === 'string' ? s : s?.text || '')).join(' ').trim();
+    if (text.length < 20) return null;
+    return [{ text, duration: 0, offset: 0 }];
+  } catch {
+    return null;
+  }
+}
+
 const ARTICLE_SELECTORS = [
   'article',
   'main',
@@ -122,60 +224,90 @@ router.post('/from-url', authMiddleware, async (req, res) => {
     }
 
     // YouTube: fetch transcript instead of HTML
-    if (isYouTubeUrl(url)) {
-      try {
-        const { fetchTranscript } = await import('youtube-transcript-plus');
-        const segments = await fetchTranscript(url, {
-          userAgent: BROWSER_HEADERS['User-Agent'],
-          videoFetch: async ({ url: fetchUrl, lang }) => {
-            return fetch(fetchUrl, {
-              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
-            });
-          },
-          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) => {
-            return fetch(fetchUrl, {
-              method: method || 'POST',
+    if (/youtube\.com|youtu\.be/i.test(url)) {
+      if (!isYouTubeUrl(url)) {
+        return res.status(400).json({
+          error: 'Invalid YouTube URL. Paste the full link (e.g. https://youtu.be/VIDEO_ID or https://youtube.com/watch?v=VIDEO_ID)',
+        });
+      }
+      const videoId = getYouTubeVideoId(url);
+      if (!videoId) {
+        return res.status(400).json({
+          error: 'Invalid YouTube URL. Paste the full link (e.g. https://youtu.be/VIDEO_ID or https://youtube.com/watch?v=VIDEO_ID)',
+        });
+      }
+
+      let segments = null;
+      const useProxy = !!getProxyAgentUrl();
+
+      const createFetch = (opts) =>
+        useProxy
+          ? proxyFetch(opts.url, {
+              method: opts.method || 'GET',
+              headers: {
+                ...(opts.headers || {}),
+                ...(opts.lang && { 'Accept-Language': opts.lang }),
+                ...(opts.method === 'POST' && { 'Content-Type': 'application/json' }),
+              },
+              body: opts.body,
+            })
+          : fetch(opts.url, {
+              method: opts.method || 'GET',
               headers: {
                 ...BROWSER_HEADERS,
-                ...(headers || {}),
-                ...(lang && { 'Accept-Language': lang }),
-                'Content-Type': 'application/json',
+                ...(opts.headers || {}),
+                ...(opts.lang && { 'Accept-Language': opts.lang }),
+                ...(opts.method === 'POST' && { 'Content-Type': 'application/json' }),
               },
-              body,
+              body: opts.body,
             });
-          },
-          transcriptFetch: async ({ url: fetchUrl, lang }) => {
-            return fetch(fetchUrl, {
-              headers: { ...BROWSER_HEADERS, ...(lang && { 'Accept-Language': lang }) },
-            });
-          },
+
+      // Try 1: Direct fetch (local) or proxy fetch (production when PROXY_* set)
+      try {
+        const { fetchTranscript } = await import('youtube-transcript-plus');
+        segments = await fetchTranscript(url, {
+          userAgent: BROWSER_HEADERS['User-Agent'],
+          videoFetch: async ({ url: fetchUrl, lang }) =>
+            createFetch({ url: fetchUrl, lang }),
+          playerFetch: async ({ url: fetchUrl, method, body, headers, lang }) =>
+            createFetch({ url: fetchUrl, method: method || 'POST', body, headers, lang }),
+          transcriptFetch: async ({ url: fetchUrl, lang }) =>
+            createFetch({ url: fetchUrl, lang }),
         });
-        if (!segments?.length) {
-          return res.status(400).json({
-            error: 'This video has no captions. Only videos with subtitles/captions can be imported.',
-          });
-        }
-        let text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
-        if (!text || text.length < 20) {
-          return res.status(400).json({
-            error: 'Could not extract enough text from this video\'s captions.',
-          });
-        }
-        text = await addPunctuation(text);
-        return res.json({ text, title: 'YouTube video' });
       } catch (ytErr) {
-        console.error('YouTube transcript error:', ytErr.message);
-        const msg = ytErr.message?.includes('Transcript is disabled') ||
-          ytErr.message?.includes('disabled') ||
-          ytErr.message?.includes('TranscriptsDisabled')
-          ? 'This video has captions disabled.'
-          : ytErr.message?.includes('not available')
-            ? 'No transcript available for this video.'
-            : ytErr.message?.includes('too many requests')
-              ? 'Too many requests. Please try again later.'
-              : 'Could not get transcript from this YouTube video.';
-        return res.status(400).json({ error: msg });
+        console.error(
+          '[YouTube]',
+          useProxy ? 'Proxy fetch failed' : 'Direct fetch failed',
+          '-',
+          ytErr.message,
+          useProxy ? '(proxy configured)' : '',
+          '- trying TubeText fallback'
+        );
       }
+
+      // Try 2: TubeText API (fallback for production when YouTube blocks cloud IPs)
+      if (!segments?.length && videoId) {
+        try {
+          segments = await fetchTranscriptViaTubeText(videoId);
+        } catch (fbErr) {
+          console.error('TubeText fallback failed:', fbErr.message);
+        }
+      }
+
+      if (!segments?.length) {
+        return res.status(400).json({
+          error: 'Could not get transcript from this YouTube video. Make sure the video has captions enabled.',
+        });
+      }
+
+      let text = segments.map((s) => (s.text || '')).join(' ').replace(/\s+/g, ' ').trim();
+      if (!text || text.length < 20) {
+        return res.status(400).json({
+          error: 'This video has no captions. Only videos with subtitles/captions can be imported.',
+        });
+      }
+      text = await addPunctuation(text);
+      return res.json({ text, title: 'YouTube video' });
     }
 
     const response = await axios.get(url, {
