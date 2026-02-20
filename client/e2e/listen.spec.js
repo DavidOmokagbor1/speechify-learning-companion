@@ -12,7 +12,7 @@ test.describe('Listen flow (E2E)', () => {
   });
 
   test('navigates to listen and shows content input', async ({ page }) => {
-    await page.getByRole('link', { name: /start listening|add document/i }).first().click();
+    await page.getByRole('link', { name: /listen|new|create text/i }).first().click();
 
     await expect(page).toHaveURL(/listen/);
     await expect(page.getByPlaceholder(/paste|type|content/i)).toBeVisible();
@@ -35,6 +35,6 @@ test.describe('Listen flow (E2E)', () => {
 
     await page.getByRole('link', { name: /stats/i }).click();
     await expect(page).toHaveURL(/dashboard/);
-    await expect(page.getByText(/retention|total quizzes/i)).toBeVisible();
+    await expect(page.getByText(/retention|total quizzes/i).first()).toBeVisible();
   });
 });

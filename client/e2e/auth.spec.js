@@ -22,7 +22,7 @@ test.describe('Auth flow (E2E)', () => {
 
     // Sign out and go to login
     await page.getByRole('button', { name: /sign out/i }).click();
-    await page.getByRole('link', { name: /sign in/i }).click();
+    await page.getByRole('link', { name: /sign in/i }).first().click();
 
     // Login
     await page.getByPlaceholder('Email').fill(testEmail);

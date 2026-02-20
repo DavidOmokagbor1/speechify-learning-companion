@@ -4,6 +4,8 @@ const cheerio = require('cheerio');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const OpenAI = require('openai');
 const { authMiddleware } = require('../middleware/auth');
+const { isYouTubeUrl, getYouTubeVideoId, normalizeUrl } = require('../utils/youtubeUrl');
+const { getProxyConfig, buildProxyUrl, getProxyAgentUrl } = require('../utils/proxy');
 
 // Use youtube-transcript-plus in production. YouTube blocks cloud IPs;
 // we pass full browser-like headers via custom fetches to bypass detection.
@@ -14,51 +16,6 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
   'Referer': 'https://www.youtube.com/',
 };
-
-function getProxyConfig() {
-  const proxyUrl = process.env.PROXY_URL;
-  if (proxyUrl) {
-    try {
-      const u = new URL(proxyUrl);
-      const auth = u.username && u.password
-        ? { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) }
-        : undefined;
-      return {
-        host: u.hostname,
-        port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80'), 10),
-        protocol: u.protocol.replace(':', '') || 'http',
-        auth,
-      };
-    } catch {
-      return null;
-    }
-  }
-  const host = process.env.PROXY_HOST;
-  const port = process.env.PROXY_PORT;
-  if (!host || !port) return null;
-  const user = process.env.PROXY_USER;
-  const pass = process.env.PROXY_PASS;
-  const auth = user && pass ? { username: user, password: pass } : undefined;
-  return { host, port: parseInt(port, 10), protocol: 'http', auth };
-}
-
-function buildProxyUrl(config) {
-  if (!config) return null;
-  const auth = config.auth
-    ? `${encodeURIComponent(config.auth.username)}:${encodeURIComponent(config.auth.password)}@`
-    : '';
-  return `${config.protocol}://${auth}${config.host}:${config.port}`;
-}
-
-function getProxyAgentUrl() {
-  let proxyUrl = process.env.PROXY_URL?.trim();
-  if (proxyUrl) {
-    if (!/^https?:\/\//i.test(proxyUrl)) proxyUrl = 'http://' + proxyUrl;
-    return proxyUrl;
-  }
-  const cfg = getProxyConfig();
-  return cfg ? buildProxyUrl(cfg) : null;
-}
 
 /** Make HTTP request via proxy if configured; return fetch-like Response for youtube-transcript-plus */
 async function proxyFetch(url, { method = 'GET', headers = {}, body } = {}) {
@@ -78,14 +35,27 @@ async function proxyFetch(url, { method = 'GET', headers = {}, body } = {}) {
     options.httpsAgent = new HttpsProxyAgent(proxyUrl);
   }
 
-  const res = await axios(options);
-  const data = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-  return {
-    ok: res.status >= 200 && res.status < 300,
-    status: res.status,
-    text: async () => data,
-    json: async () => JSON.parse(data),
-  };
+  try {
+    const res = await axios(options);
+    const data = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      text: async () => data,
+      json: async () => JSON.parse(data),
+    };
+  } catch (err) {
+    const msg = axios.isAxiosError(err)
+      ? err.code === 'ECONNREFUSED'
+        ? 'Proxy connection refused'
+        : err.code === 'ETIMEDOUT'
+          ? 'Proxy timeout'
+          : err.response?.status === 407
+            ? 'Proxy authentication failed'
+            : err.message
+      : err.message;
+    throw new Error(`Proxy fetch failed: ${msg}`);
+  }
 }
 
 const router = express.Router();
@@ -139,17 +109,6 @@ Rules:
   }
 }
 
-const YOUTUBE_REGEX = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i;
-
-function isYouTubeUrl(url) {
-  return YOUTUBE_REGEX.test(url);
-}
-
-function getYouTubeVideoId(url) {
-  const m = url.match(YOUTUBE_REGEX);
-  return m ? m[1] : null;
-}
-
 /** Fallback: TubeText API when direct fetch fails (YouTube blocks cloud IPs) */
 async function fetchTranscriptViaTubeText(videoId) {
   try {
@@ -201,18 +160,6 @@ function extractText(html) {
 
   const body = $('body').text().trim();
   return body.length > 100 ? body : '';
-}
-
-function normalizeUrl(input) {
-  let url = (input || '').trim();
-  if (!url) return null;
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-  try {
-    new URL(url);
-    return url;
-  } catch {
-    return null;
-  }
 }
 
 // POST /api/content/from-url (protected)
@@ -338,11 +285,20 @@ router.post('/from-url', authMiddleware, async (req, res) => {
   } catch (err) {
     if (axios.isAxiosError(err)) {
       const status = err.response?.status;
-      const msg = status === 403 ? 'Access denied by website' : status === 404 ? 'Page not found' : 'Could not fetch URL';
+      const msg =
+        status === 403
+          ? 'Access denied by website'
+          : status === 404
+            ? 'Page not found'
+            : err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT'
+              ? 'Could not reach the URL. Try again later.'
+              : 'Could not fetch URL';
       return res.status(400).json({ error: msg });
     }
     console.error('Content from-url error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch content from URL' });
+    const userMsg =
+      err.message?.includes('Proxy') ? 'Proxy error. Check proxy configuration.' : 'Failed to fetch content from URL';
+    return res.status(500).json({ error: userMsg });
   }
 });
 

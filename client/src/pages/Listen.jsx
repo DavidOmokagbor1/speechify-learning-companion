@@ -64,7 +64,8 @@ export default function Listen() {
   useEffect(() => {
     if (isPlaying && playbackActiveRef.current && text) {
       synthRef.current?.cancel();
-      speakChunk(currentChunkStartRef.current);
+      const resumeFrom = Math.max(0, currentChunkStartRef.current);
+      speakChunk(resumeFrom);
     }
   }, [playbackSpeed, selectedVoice]);
 
@@ -143,10 +144,11 @@ export default function Listen() {
       return;
     }
     const utterance = new SpeechSynthesisUtterance(chunk);
-    utterance.rate = playbackSpeedRef.current;
+    const rate = Math.round(playbackSpeedRef.current * 10) / 10;
+    utterance.rate = Math.max(0.5, Math.min(2, rate));
     const voiceName = selectedVoiceRef.current;
     if (voiceName) {
-      const voice = voicesRef.current.find((v) => v.name === voiceName);
+      const voice = voicesRef.current.find((v) => v && v.name === voiceName);
       if (voice) utterance.voice = voice;
     }
     utterance.onend = () => {
@@ -297,7 +299,7 @@ export default function Listen() {
               <select
                 value={selectedVoice || ''}
                 onChange={(e) => setSelectedVoice(e.target.value || null)}
-                disabled={isPlaying || !!quiz}
+                disabled={!!quiz}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {voices.map((v) => (
@@ -317,10 +319,13 @@ export default function Listen() {
                 max="2"
                 step="0.1"
                 value={playbackSpeed}
-                onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setPlaybackSpeed(Math.round(val * 10) / 10);
+                }}
                 className="flex-1 h-2 rounded-lg bg-white/10 accent-blue-500"
               />
-              <span className="text-white text-sm font-mono w-10">{playbackSpeed}x</span>
+              <span className="text-white text-sm font-mono w-12">{playbackSpeed.toFixed(1)}x</span>
             </div>
           </div>
           <div>
@@ -328,7 +333,7 @@ export default function Listen() {
             <select
               value={quizIntervalMinutes}
               onChange={(e) => setQuizIntervalMinutes(Number(e.target.value))}
-              disabled={isPlaying || !!quiz}
+              disabled={!!quiz}
               className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {QUIZ_INTERVAL_OPTIONS.map((opt) => (
@@ -341,7 +346,7 @@ export default function Listen() {
             <select
               value={quizDifficulty}
               onChange={(e) => setQuizDifficulty(e.target.value)}
-              disabled={isPlaying || !!quiz}
+              disabled={!!quiz}
               className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="easy">Easy</option>

@@ -10,7 +10,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'node',
+    environment: 'jsdom',
+    exclude: ['**/e2e/**', '**/node_modules/**', '**/playwright-report/**'],
+    setupFiles: ['./src/test/setup.js'],
   },
   server: {
     port: 5173,
